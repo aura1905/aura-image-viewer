@@ -880,9 +880,15 @@
             if (mediaUrl) { URL.revokeObjectURL(mediaUrl); mediaUrl = null; }
             isAnimated = false;
             isVideo = false;
+            // Remove event handlers BEFORE clearing src to prevent onerror cascade
+            videoPlayer.onerror = null;
+            videoPlayer.onloadedmetadata = null;
+            videoPlayer.onseeked = null;
             videoPlayer.pause();
-            videoPlayer.src = '';
+            videoPlayer.removeAttribute('src');
+            videoPlayer.load(); // reset video element
             videoPlayer.style.display = 'none';
+            gifImg.onerror = null;
             gifImg.src = '';
             gifImg.style.display = 'none';
         }
