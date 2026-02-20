@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aura DDS Viewer</title>
+    <title>Aura Image Viewer</title>
     <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='16' fill='%236c5ce7'/><text x='50' y='62' text-anchor='middle' font-size='40' font-weight='bold' fill='white' font-family='sans-serif'>DDS</text></svg>">
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='16' fill='%236c5ce7'/><text x='50' y='64' text-anchor='middle' font-size='52' font-weight='bold' fill='white' font-family='sans-serif'>A</text></svg>">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
@@ -123,6 +123,7 @@
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border);
             flex-shrink: 0;
+            flex-wrap: wrap;
         }
 
         .toolbar .separator {
@@ -322,7 +323,6 @@
             color: var(--text-dim);
         }
 
-        /* ===== Mipmap selector ===== */
         .mip-select {
             padding: 4px 8px;
             border-radius: 6px;
@@ -334,7 +334,6 @@
             cursor: pointer;
         }
 
-        /* ===== Scrollbar ===== */
         ::-webkit-scrollbar {
             width: 6px;
         }
@@ -352,7 +351,6 @@
             background: var(--text-dim);
         }
 
-        /* ===== Toggle ===== */
         .toggle-wrap {
             display: flex;
             align-items: center;
@@ -390,6 +388,20 @@
         .toggle.active::after {
             transform: translateX(14px);
         }
+
+        /* ===== Video player ===== */
+        #video-player {
+            display: none;
+            max-width: 100%;
+            max-height: 100%;
+            outline: none;
+            border-radius: 4px;
+        }
+
+        #gif-img {
+            display: none;
+            image-rendering: auto;
+        }
     </style>
 </head>
 
@@ -406,7 +418,7 @@
                     <polyline points="21 15 16 10 5 21" />
                 </svg>
             </div>
-            <span>Aura DDS Viewer</span>
+            <span>Aura Image Viewer</span>
         </div>
         <div class="header-actions">
             <button class="btn btn-primary" id="btn-open">
@@ -481,17 +493,19 @@
                     <polyline points="21 15 16 10 5 21" />
                 </svg>
             </div>
-            <div class="drop-text">이미지 파일을 드래그하거나 클릭하여 열기</div>
-            <div class="drop-subtext">DDS (DXT1/3/5) &middot; PNG &middot; JPG &middot; GIF &middot; BMP &middot; WebP
-                &middot; TGA</div>
+            <div class="drop-text">파일을 드래그하거나 클릭하여 열기</div>
+            <div class="drop-subtext">DDS &middot; PNG &middot; JPG &middot; GIF &middot; BMP &middot; WebP &middot; MP4
+                &middot; WebM</div>
         </div>
         <div class="canvas-wrapper checker-bg" id="canvas-wrapper" style="display:none;">
             <canvas id="dds-canvas"></canvas>
-            <img id="gif-img" style="display:none; width:100%; height:100%;">
+            <img id="gif-img">
+            <video id="video-player" loop controls></video>
         </div>
     </div>
 
-    <input type="file" id="file-input" accept=".dds,.png,.jpg,.jpeg,.gif,.bmp,.webp,.tga,.tiff,.tif,.svg"
+    <input type="file" id="file-input"
+        accept=".dds,.png,.jpg,.jpeg,.gif,.bmp,.webp,.tga,.tiff,.tif,.svg,.mp4,.webm,.mov,.avi,.mkv,.ogg"
         style="display:none;">
 
     <script>
@@ -499,7 +513,6 @@
         // DDS Parser
         // ========================================================
         const DDS_MAGIC = 0x20534444;
-        const DDPF_ALPHAPIXELS = 0x1;
         const DDPF_FOURCC = 0x4;
         const DDPF_RGB = 0x40;
         const FOURCC_DXT1 = 0x31545844;
@@ -508,16 +521,12 @@
 
         function parseDDS(buffer) {
             const view = new DataView(buffer);
-            const magic = view.getUint32(0, true);
-            if (magic !== DDS_MAGIC) throw new Error('유효하지 않은 DDS 파일입니다.');
-
-            const headerSize = view.getUint32(4, true);
-            if (headerSize !== 124) throw new Error('DDS 헤더 크기가 올바르지 않습니다.');
+            if (view.getUint32(0, true) !== DDS_MAGIC) throw new Error('유효하지 않은 DDS 파일입니다.');
+            if (view.getUint32(4, true) !== 124) throw new Error('DDS 헤더 크기가 올바르지 않습니다.');
 
             const height = view.getUint32(12, true);
             const width = view.getUint32(16, true);
             const mipMapCount = Math.max(1, view.getUint32(28, true));
-
             const pfFlags = view.getUint32(80, true);
             const fourCC = view.getUint32(84, true);
             const rgbBitCount = view.getUint32(88, true);
@@ -537,166 +546,105 @@
                     if (rMask === 0xFF && bMask === 0xFF0000) format = 'RGBA8';
                     else if (rMask === 0xFF0000 && bMask === 0xFF) format = 'BGRA8';
                     else format = 'RGBA32_CUSTOM';
-                } else if (rgbBitCount === 24) {
-                    format = 'RGB24';
-                } else {
-                    format = 'RGB_' + rgbBitCount + 'bit';
-                }
+                } else if (rgbBitCount === 24) format = 'RGB24';
+                else format = 'RGB_' + rgbBitCount + 'bit';
             }
 
             const mipmaps = [];
             let offset = 128;
-
             for (let i = 0; i < mipMapCount; i++) {
-                const mipW = Math.max(1, width >> i);
-                const mipH = Math.max(1, height >> i);
-                let dataSize;
-
-                if (format === 'DXT1') {
-                    dataSize = Math.max(1, Math.ceil(mipW / 4)) * Math.max(1, Math.ceil(mipH / 4)) * 8;
-                } else if (format === 'DXT3' || format === 'DXT5') {
-                    dataSize = Math.max(1, Math.ceil(mipW / 4)) * Math.max(1, Math.ceil(mipH / 4)) * 16;
-                } else if (format === 'RGBA8' || format === 'BGRA8' || format === 'RGBA32_CUSTOM') {
-                    dataSize = mipW * mipH * 4;
-                } else if (format === 'RGB24') {
-                    dataSize = mipW * mipH * 3;
-                } else {
-                    dataSize = mipW * mipH * Math.max(1, rgbBitCount / 8);
-                }
-
-                if (offset + dataSize > buffer.byteLength) break;
-
-                mipmaps.push({
-                    width: mipW, height: mipH,
-                    data: new Uint8Array(buffer, offset, dataSize),
-                    offset, size: dataSize,
-                });
-                offset += dataSize;
+                const mW = Math.max(1, width >> i), mH = Math.max(1, height >> i);
+                let sz;
+                if (format === 'DXT1') sz = Math.max(1, Math.ceil(mW / 4)) * Math.max(1, Math.ceil(mH / 4)) * 8;
+                else if (format === 'DXT3' || format === 'DXT5') sz = Math.max(1, Math.ceil(mW / 4)) * Math.max(1, Math.ceil(mH / 4)) * 16;
+                else if (format === 'RGBA8' || format === 'BGRA8' || format === 'RGBA32_CUSTOM') sz = mW * mH * 4;
+                else if (format === 'RGB24') sz = mW * mH * 3;
+                else sz = mW * mH * Math.max(1, rgbBitCount / 8);
+                if (offset + sz > buffer.byteLength) break;
+                mipmaps.push({ width: mW, height: mH, data: new Uint8Array(buffer, offset, sz), offset, size: sz });
+                offset += sz;
             }
-
             return { width, height, format, mipMapCount, mipmaps, pfFlags, rgbBitCount, rMask, gMask, bMask, aMask };
         }
 
         // ========================================================
         // DXT Decompression
         // ========================================================
-        function unpackColor565(c) {
-            return [
-                ((c >> 11) & 0x1F) * 255 / 31 | 0,
-                ((c >> 5) & 0x3F) * 255 / 63 | 0,
-                (c & 0x1F) * 255 / 31 | 0,
-                255
-            ];
+        function unpack565(c) {
+            return [((c >> 11) & 0x1F) * 255 / 31 | 0, ((c >> 5) & 0x3F) * 255 / 63 | 0, (c & 0x1F) * 255 / 31 | 0, 255];
         }
 
-        function decodeDXT1Block(src, off) {
-            const c0 = src[off] | (src[off + 1] << 8);
-            const c1 = src[off + 2] | (src[off + 3] << 8);
-            const col0 = unpackColor565(c0);
-            const col1 = unpackColor565(c1);
-            const colors = [col0, col1, [0, 0, 0, 255], [0, 0, 0, 255]];
-
+        function dxt1Block(s, o) {
+            const c0 = s[o] | (s[o + 1] << 8), c1 = s[o + 2] | (s[o + 3] << 8);
+            const a = unpack565(c0), b = unpack565(c1);
+            const cl = [a, b, [0, 0, 0, 255], [0, 0, 0, 255]];
             if (c0 > c1) {
-                colors[2] = [(2 * col0[0] + col1[0] + 1) / 3 | 0, (2 * col0[1] + col1[1] + 1) / 3 | 0, (2 * col0[2] + col1[2] + 1) / 3 | 0, 255];
-                colors[3] = [(col0[0] + 2 * col1[0] + 1) / 3 | 0, (col0[1] + 2 * col1[1] + 1) / 3 | 0, (col0[2] + 2 * col1[2] + 1) / 3 | 0, 255];
+                cl[2] = [(2 * a[0] + b[0] + 1) / 3 | 0, (2 * a[1] + b[1] + 1) / 3 | 0, (2 * a[2] + b[2] + 1) / 3 | 0, 255];
+                cl[3] = [(a[0] + 2 * b[0] + 1) / 3 | 0, (a[1] + 2 * b[1] + 1) / 3 | 0, (a[2] + 2 * b[2] + 1) / 3 | 0, 255];
             } else {
-                colors[2] = [(col0[0] + col1[0]) / 2 | 0, (col0[1] + col1[1]) / 2 | 0, (col0[2] + col1[2]) / 2 | 0, 255];
-                colors[3] = [0, 0, 0, 0];
+                cl[2] = [(a[0] + b[0]) / 2 | 0, (a[1] + b[1]) / 2 | 0, (a[2] + b[2]) / 2 | 0, 255];
+                cl[3] = [0, 0, 0, 0];
             }
-
-            const pixels = new Uint8Array(64);
-            const bits = src[off + 4] | (src[off + 5] << 8) | (src[off + 6] << 16) | (src[off + 7] << 24);
-            for (let i = 0; i < 16; i++) {
-                const idx = (bits >> (i * 2)) & 0x3;
-                const c = colors[idx];
-                pixels[i * 4] = c[0]; pixels[i * 4 + 1] = c[1]; pixels[i * 4 + 2] = c[2]; pixels[i * 4 + 3] = c[3];
-            }
-            return pixels;
-        }
-
-        function decodeDXT3Block(src, off) {
-            const alphas = new Uint8Array(16);
-            for (let i = 0; i < 8; i++) {
-                alphas[i * 2] = (src[off + i] & 0x0F) * 17;
-                alphas[i * 2 + 1] = ((src[off + i] >> 4) & 0x0F) * 17;
-            }
-            const px = decodeDXT1Block(src, off + 8);
-            for (let i = 0; i < 16; i++) px[i * 4 + 3] = alphas[i];
+            const px = new Uint8Array(64);
+            const bits = s[o + 4] | (s[o + 5] << 8) | (s[o + 6] << 16) | (s[o + 7] << 24);
+            for (let i = 0; i < 16; i++) { const idx = (bits >> (i * 2)) & 3, c = cl[idx]; px[i * 4] = c[0]; px[i * 4 + 1] = c[1]; px[i * 4 + 2] = c[2]; px[i * 4 + 3] = c[3]; }
             return px;
         }
 
-        function decodeDXT5Block(src, off) {
-            const a0 = src[off], a1 = src[off + 1];
-            const ab0 = src[off + 2] | (src[off + 3] << 8) | (src[off + 4] << 16);
-            const ab1 = src[off + 5] | (src[off + 6] << 8) | (src[off + 7] << 16);
+        function dxt3Block(s, o) {
+            const al = new Uint8Array(16);
+            for (let i = 0; i < 8; i++) { al[i * 2] = (s[o + i] & 0xF) * 17; al[i * 2 + 1] = ((s[o + i] >> 4) & 0xF) * 17; }
+            const px = dxt1Block(s, o + 8);
+            for (let i = 0; i < 16; i++)px[i * 4 + 3] = al[i];
+            return px;
+        }
+
+        function dxt5Block(s, o) {
+            const a0 = s[o], a1 = s[o + 1];
+            const ab0 = s[o + 2] | (s[o + 3] << 8) | (s[o + 4] << 16);
+            const ab1 = s[o + 5] | (s[o + 6] << 8) | (s[o + 7] << 16);
             const ai = [];
-            for (let i = 0; i < 8; i++) ai.push((ab0 >> (i * 3)) & 0x7);
-            for (let i = 0; i < 8; i++) ai.push((ab1 >> (i * 3)) & 0x7);
-
-            const ap = new Uint8Array(8);
-            ap[0] = a0; ap[1] = a1;
-            if (a0 > a1) {
-                for (let i = 2; i < 8; i++) ap[i] = ((8 - i) * a0 + (i - 1) * a1 + 3) / 7 | 0;
-            } else {
-                for (let i = 2; i < 6; i++) ap[i] = ((6 - i) * a0 + (i - 1) * a1 + 2) / 5 | 0;
-                ap[6] = 0; ap[7] = 255;
-            }
-
-            const px = decodeDXT1Block(src, off + 8);
-            for (let i = 0; i < 16; i++) px[i * 4 + 3] = ap[ai[i]];
+            for (let i = 0; i < 8; i++)ai.push((ab0 >> (i * 3)) & 7);
+            for (let i = 0; i < 8; i++)ai.push((ab1 >> (i * 3)) & 7);
+            const ap = new Uint8Array(8); ap[0] = a0; ap[1] = a1;
+            if (a0 > a1) { for (let i = 2; i < 8; i++)ap[i] = ((8 - i) * a0 + (i - 1) * a1 + 3) / 7 | 0; }
+            else { for (let i = 2; i < 6; i++)ap[i] = ((6 - i) * a0 + (i - 1) * a1 + 2) / 5 | 0; ap[6] = 0; ap[7] = 255; }
+            const px = dxt1Block(s, o + 8);
+            for (let i = 0; i < 16; i++)px[i * 4 + 3] = ap[ai[i]];
             return px;
         }
 
         function decompressDXT(mip, fmt) {
-            const { width, height, data } = mip;
-            const out = new Uint8Array(width * height * 4);
-            const bx = Math.max(1, Math.ceil(width / 4));
-            const by = Math.max(1, Math.ceil(height / 4));
+            const { width: w, height: h, data } = mip;
+            const out = new Uint8Array(w * h * 4);
+            const bx = Math.max(1, Math.ceil(w / 4)), by = Math.max(1, Math.ceil(h / 4));
             const bs = fmt === 'DXT1' ? 8 : 16;
-
-            for (let y = 0; y < by; y++) {
-                for (let x = 0; x < bx; x++) {
-                    const bo = (y * bx + x) * bs;
-                    let px;
-                    if (fmt === 'DXT1') px = decodeDXT1Block(data, bo);
-                    else if (fmt === 'DXT3') px = decodeDXT3Block(data, bo);
-                    else px = decodeDXT5Block(data, bo);
-
-                    for (let py = 0; py < 4; py++) {
-                        for (let ppx = 0; ppx < 4; ppx++) {
-                            const dx = x * 4 + ppx, dy = y * 4 + py;
-                            if (dx >= width || dy >= height) continue;
-                            const si = (py * 4 + ppx) * 4, di = (dy * width + dx) * 4;
-                            out[di] = px[si]; out[di + 1] = px[si + 1]; out[di + 2] = px[si + 2]; out[di + 3] = px[si + 3];
-                        }
-                    }
+            for (let y = 0; y < by; y++)for (let x = 0; x < bx; x++) {
+                const bo = (y * bx + x) * bs;
+                let px;
+                if (fmt === 'DXT1') px = dxt1Block(data, bo);
+                else if (fmt === 'DXT3') px = dxt3Block(data, bo);
+                else px = dxt5Block(data, bo);
+                for (let py = 0; py < 4; py++)for (let ppx = 0; ppx < 4; ppx++) {
+                    const dx = x * 4 + ppx, dy = y * 4 + py;
+                    if (dx >= w || dy >= h) continue;
+                    const si = (py * 4 + ppx) * 4, di = (dy * w + dx) * 4;
+                    out[di] = px[si]; out[di + 1] = px[si + 1]; out[di + 2] = px[si + 2]; out[di + 3] = px[si + 3];
                 }
             }
             return out;
         }
 
         function decodeUncompressed(mip, dds) {
-            const { width, height, data } = mip;
-            const out = new Uint8Array(width * height * 4);
-            if (dds.format === 'BGRA8') {
-                for (let i = 0; i < width * height; i++) {
-                    out[i * 4] = data[i * 4 + 2]; out[i * 4 + 1] = data[i * 4 + 1]; out[i * 4 + 2] = data[i * 4]; out[i * 4 + 3] = data[i * 4 + 3];
-                }
-            } else if (dds.format === 'RGBA8' || dds.format === 'RGBA32_CUSTOM') {
-                out.set(data);
-            } else if (dds.format === 'RGB24') {
-                for (let i = 0; i < width * height; i++) {
-                    out[i * 4] = data[i * 3]; out[i * 4 + 1] = data[i * 3 + 1]; out[i * 4 + 2] = data[i * 3 + 2]; out[i * 4 + 3] = 255;
-                }
-            }
+            const { width: w, height: h, data } = mip; const out = new Uint8Array(w * h * 4);
+            if (dds.format === 'BGRA8') { for (let i = 0; i < w * h; i++) { out[i * 4] = data[i * 4 + 2]; out[i * 4 + 1] = data[i * 4 + 1]; out[i * 4 + 2] = data[i * 4]; out[i * 4 + 3] = data[i * 4 + 3]; } }
+            else if (dds.format === 'RGBA8' || dds.format === 'RGBA32_CUSTOM') { out.set(data); }
+            else if (dds.format === 'RGB24') { for (let i = 0; i < w * h; i++) { out[i * 4] = data[i * 3]; out[i * 4 + 1] = data[i * 3 + 1]; out[i * 4 + 2] = data[i * 3 + 2]; out[i * 4 + 3] = 255; } }
             return out;
         }
 
         function decodeToRGBA(mip, dds) {
-            if (dds.format === 'DXT1' || dds.format === 'DXT3' || dds.format === 'DXT5') {
-                return decompressDXT(mip, dds.format);
-            }
-            return decodeUncompressed(mip, dds);
+            return (dds.format === 'DXT1' || dds.format === 'DXT3' || dds.format === 'DXT5') ? decompressDXT(mip, dds.format) : decodeUncompressed(mip, dds);
         }
 
         // ========================================================
@@ -706,8 +654,7 @@
             if (ch === 'rgba') return rgba;
             const out = new Uint8Array(rgba.length);
             for (let i = 0; i < w * h; i++) {
-                const o = i * 4;
-                const r = rgba[o], g = rgba[o + 1], b = rgba[o + 2], a = rgba[o + 3];
+                const o = i * 4, r = rgba[o], g = rgba[o + 1], b = rgba[o + 2], a = rgba[o + 3];
                 if (ch === 'r') { out[o] = r; out[o + 1] = 0; out[o + 2] = 0; out[o + 3] = 255; }
                 else if (ch === 'g') { out[o] = 0; out[o + 1] = g; out[o + 2] = 0; out[o + 3] = 255; }
                 else if (ch === 'b') { out[o] = 0; out[o + 1] = 0; out[o + 2] = b; out[o + 3] = 255; }
@@ -717,7 +664,7 @@
         }
 
         // ========================================================
-        // App State & UI
+        // App State
         // ========================================================
         let currentDDS = null;
         let currentRGBA = null;
@@ -731,7 +678,8 @@
         let panStartPanX = 0, panStartPanY = 0;
         let fileName = '';
         let isAnimated = false;
-        let animatedImgUrl = null;
+        let isVideo = false;
+        let mediaUrl = null;
 
         const canvas = document.getElementById('dds-canvas');
         const ctx = canvas.getContext('2d');
@@ -740,9 +688,12 @@
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
         const mipSelect = document.getElementById('mip-select');
-
         const gifImg = document.getElementById('gif-img');
+        const videoPlayer = document.getElementById('video-player');
 
+        // ========================================================
+        // Render
+        // ========================================================
         function renderCanvas() {
             if (!currentDDS) return;
             const mip = currentDDS.mipmaps[currentMip];
@@ -751,34 +702,59 @@
             canvasWrapper.style.width = w + 'px';
             canvasWrapper.style.height = h + 'px';
 
-            // Animated GIF in RGBA mode: show <img>, hide canvas
-            if (isAnimated && currentChannel === 'rgba') {
+            // Video mode
+            if (isVideo) {
                 canvas.style.display = 'none';
-                gifImg.style.display = 'block';
-                gifImg.style.width = w + 'px';
-                gifImg.style.height = h + 'px';
-            } else {
-                // For channel views on GIF, capture current frame
-                if (isAnimated && currentChannel !== 'rgba') {
-                    const tmpCanvas = document.createElement('canvas');
-                    tmpCanvas.width = w;
-                    tmpCanvas.height = h;
-                    const tmpCtx = tmpCanvas.getContext('2d');
-                    tmpCtx.drawImage(gifImg, 0, 0, w, h);
-                    const imgData = tmpCtx.getImageData(0, 0, w, h);
-                    currentRGBA = new Uint8Array(imgData.data.buffer);
-                }
+                gifImg.style.display = 'none';
 
+                if (currentChannel === 'rgba') {
+                    videoPlayer.style.display = 'block';
+                    videoPlayer.style.width = w + 'px';
+                    videoPlayer.style.height = h + 'px';
+                } else {
+                    // Capture current frame for channel view
+                    videoPlayer.style.display = 'none';
+                    canvas.style.display = 'block';
+                    canvas.width = w; canvas.height = h;
+                    ctx.drawImage(videoPlayer, 0, 0, w, h);
+                    const imgData = ctx.getImageData(0, 0, w, h);
+                    const frameRGBA = new Uint8Array(imgData.data.buffer);
+                    const filtered = applyChannel(frameRGBA, currentChannel, w, h);
+                    const outData = new ImageData(new Uint8ClampedArray(filtered), w, h);
+                    ctx.putImageData(outData, 0, 0);
+                }
+            }
+            // Animated GIF mode
+            else if (isAnimated) {
+                videoPlayer.style.display = 'none';
+
+                if (currentChannel === 'rgba') {
+                    canvas.style.display = 'none';
+                    gifImg.style.display = 'block';
+                    gifImg.style.width = w + 'px';
+                    gifImg.style.height = h + 'px';
+                } else {
+                    gifImg.style.display = 'none';
+                    canvas.style.display = 'block';
+                    canvas.width = w; canvas.height = h;
+                    const tmp = document.createElement('canvas');
+                    tmp.width = w; tmp.height = h;
+                    const tc = tmp.getContext('2d');
+                    tc.drawImage(gifImg, 0, 0, w, h);
+                    currentRGBA = new Uint8Array(tc.getImageData(0, 0, w, h).data.buffer);
+                    const filtered = applyChannel(currentRGBA, currentChannel, w, h);
+                    ctx.putImageData(new ImageData(new Uint8ClampedArray(filtered), w, h), 0, 0);
+                }
+            }
+            // Static image / DDS
+            else {
+                videoPlayer.style.display = 'none';
                 gifImg.style.display = 'none';
                 canvas.style.display = 'block';
-                canvas.width = w;
-                canvas.height = h;
-
+                canvas.width = w; canvas.height = h;
                 if (!currentRGBA) return;
                 const filtered = applyChannel(currentRGBA, currentChannel, w, h);
-                const imgData = new ImageData(new Uint8ClampedArray(filtered), w, h);
-                ctx.clearRect(0, 0, w, h);
-                ctx.putImageData(imgData, 0, 0);
+                ctx.putImageData(new ImageData(new Uint8ClampedArray(filtered), w, h), 0, 0);
             }
 
             if (showChecker && currentChannel === 'rgba') {
@@ -804,93 +780,114 @@
         }
 
         // ========================================================
-        // File Loading (DDS vs Standard Image)
+        // File Loading
         // ========================================================
-        const DDS_EXTENSIONS = ['.dds'];
-        const IMG_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tga', '.tiff', '.tif', '.svg', '.ico', '.avif'];
+        const DDS_EXT = ['.dds'];
+        const VIDEO_EXT = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.ogg'];
 
-        function getExtension(name) {
-            const dot = name.lastIndexOf('.');
-            return dot >= 0 ? name.substring(dot).toLowerCase() : '';
+        function getExt(name) {
+            const d = name.lastIndexOf('.');
+            return d >= 0 ? name.substring(d).toLowerCase() : '';
+        }
+
+        function cleanupMedia() {
+            if (mediaUrl) { URL.revokeObjectURL(mediaUrl); mediaUrl = null; }
+            isAnimated = false;
+            isVideo = false;
+            videoPlayer.pause();
+            videoPlayer.src = '';
+            videoPlayer.style.display = 'none';
+            gifImg.src = '';
+            gifImg.style.display = 'none';
         }
 
         function loadFile(file) {
-            const ext = getExtension(file.name);
-            if (DDS_EXTENSIONS.includes(ext)) {
+            const ext = getExt(file.name);
+            cleanupMedia();
+
+            if (DDS_EXT.includes(ext)) {
                 const reader = new FileReader();
                 reader.onload = () => loadDDSBuffer(reader.result, file.name);
                 reader.readAsArrayBuffer(file);
+            } else if (VIDEO_EXT.includes(ext)) {
+                loadVideoFile(file);
             } else {
                 loadImageFile(file);
             }
         }
 
         function loadImageFile(file) {
-            const ext = getExtension(file.name);
+            const ext = getExt(file.name);
             const isGif = (ext === '.gif');
             const url = URL.createObjectURL(file);
             const img = new Image();
             img.onload = () => {
-                const w = img.naturalWidth;
-                const h = img.naturalHeight;
-
-                // Clean up previous animated URL
-                if (animatedImgUrl) { URL.revokeObjectURL(animatedImgUrl); animatedImgUrl = null; }
+                const w = img.naturalWidth, h = img.naturalHeight;
 
                 if (isGif) {
-                    // Keep URL alive for animated playback
                     isAnimated = true;
-                    animatedImgUrl = url;
+                    mediaUrl = url;
                     gifImg.src = url;
-
-                    // Extract first frame for channel views
-                    const tmpCanvas = document.createElement('canvas');
-                    tmpCanvas.width = w;
-                    tmpCanvas.height = h;
-                    const tmpCtx = tmpCanvas.getContext('2d');
-                    tmpCtx.drawImage(img, 0, 0);
-                    const imgData = tmpCtx.getImageData(0, 0, w, h);
-                    currentRGBA = new Uint8Array(imgData.data.buffer);
                 } else {
-                    isAnimated = false;
-                    gifImg.style.display = 'none';
-                    gifImg.src = '';
                     URL.revokeObjectURL(url);
-
-                    // Extract RGBA
-                    const tmpCanvas = document.createElement('canvas');
-                    tmpCanvas.width = w;
-                    tmpCanvas.height = h;
-                    const tmpCtx = tmpCanvas.getContext('2d');
-                    tmpCtx.drawImage(img, 0, 0);
-                    const imgData = tmpCtx.getImageData(0, 0, w, h);
-                    currentRGBA = new Uint8Array(imgData.data.buffer);
                 }
 
-                const fmtLabel = ext.replace('.', '').toUpperCase();
+                // Extract first frame RGBA
+                const tmp = document.createElement('canvas');
+                tmp.width = w; tmp.height = h;
+                const tc = tmp.getContext('2d');
+                tc.drawImage(img, 0, 0);
+                currentRGBA = new Uint8Array(tc.getImageData(0, 0, w, h).data.buffer);
+
+                const fmtLabel = ext.replace('.', '').toUpperCase() + (isGif ? ' (animated)' : '');
                 currentDDS = {
-                    width: w, height: h,
-                    format: fmtLabel + (isGif ? ' (animated)' : ''),
-                    mipMapCount: 1,
+                    width: w, height: h, format: fmtLabel, mipMapCount: 1,
                     mipmaps: [{ width: w, height: h, data: currentRGBA, offset: 0, size: currentRGBA.length }],
                 };
                 fileName = file.name;
                 currentMip = 0;
-
                 mipSelect.innerHTML = '<option value="0">Level 0 (' + w + '\u00d7' + h + ')</option>';
 
-                dropZone.classList.add('hidden');
-                canvasWrapper.style.display = 'block';
-
-                fitToView();
-                renderCanvas();
-                updateInfo();
+                showMedia();
             };
-            img.onerror = () => {
-                URL.revokeObjectURL(url);
-                alert('\uc774\ubbf8\uc9c0 \ud30c\uc77c\uc744 \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4: ' + file.name);
-            };
+            img.onerror = () => { URL.revokeObjectURL(url); alert('\uc774\ubbf8\uc9c0\ub97c \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4: ' + file.name); };
             img.src = url;
+        }
+
+        function loadVideoFile(file) {
+            const url = URL.createObjectURL(file);
+            mediaUrl = url;
+            isVideo = true;
+
+            videoPlayer.src = url;
+            videoPlayer.onloadedmetadata = () => {
+                const w = videoPlayer.videoWidth;
+                const h = videoPlayer.videoHeight;
+                const ext = getExt(file.name).replace('.', '').toUpperCase();
+
+                // Capture first frame
+                videoPlayer.currentTime = 0;
+                videoPlayer.onseeked = () => {
+                    const tmp = document.createElement('canvas');
+                    tmp.width = w; tmp.height = h;
+                    const tc = tmp.getContext('2d');
+                    tc.drawImage(videoPlayer, 0, 0);
+                    currentRGBA = new Uint8Array(tc.getImageData(0, 0, w, h).data.buffer);
+
+                    currentDDS = {
+                        width: w, height: h, format: ext + ' (video)', mipMapCount: 1,
+                        mipmaps: [{ width: w, height: h, data: currentRGBA, offset: 0, size: currentRGBA.length }],
+                    };
+                    fileName = file.name;
+                    currentMip = 0;
+                    mipSelect.innerHTML = '<option value="0">' + w + '\u00d7' + h + '</option>';
+
+                    showMedia();
+                    videoPlayer.play();
+                    videoPlayer.onseeked = null;
+                };
+            };
+            videoPlayer.onerror = () => { URL.revokeObjectURL(url); alert('\ube44\ub514\uc624\ub97c \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4: ' + file.name); };
         }
 
         function loadDDSBuffer(buffer, name) {
@@ -910,76 +907,54 @@
                 }
 
                 currentRGBA = decodeToRGBA(dds.mipmaps[0], dds);
-
-                dropZone.classList.add('hidden');
-                canvasWrapper.style.display = 'block';
-
-                fitToView();
-                renderCanvas();
-                updateInfo();
+                showMedia();
             } catch (e) {
-                alert('DDS 파일을 읽는중 오류가 발생했습니다:\n' + e.message);
+                alert('DDS \ud30c\uc77c\uc744 \uc77d\ub294\uc911 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4:\n' + e.message);
                 console.error(e);
             }
+        }
+
+        function showMedia() {
+            dropZone.classList.add('hidden');
+            canvasWrapper.style.display = 'block';
+            fitToView();
+            renderCanvas();
+            updateInfo();
         }
 
         function fitToView() {
             if (!currentDDS) return;
             const mip = currentDDS.mipmaps[currentMip];
-            const areaW = canvasArea.clientWidth;
-            const areaH = canvasArea.clientHeight;
-            const padding = 40;
-
-            const scaleX = (areaW - padding * 2) / mip.width;
-            const scaleY = (areaH - padding * 2) / mip.height;
-            zoom = Math.min(scaleX, scaleY, 4);
+            const aW = canvasArea.clientWidth, aH = canvasArea.clientHeight;
+            const pad = 40;
+            zoom = Math.min((aW - pad * 2) / mip.width, (aH - pad * 2) / mip.height, 4);
             zoom = Math.max(zoom, 0.05);
-
-            panX = (areaW - mip.width * zoom) / 2;
-            panY = (areaH - mip.height * zoom) / 2;
-
+            panX = (aW - mip.width * zoom) / 2;
+            panY = (aH - mip.height * zoom) / 2;
             updateTransform();
             updateInfo();
         }
 
         // ========================================================
-        // Event Handlers
+        // Events
         // ========================================================
-
-        // File open
         document.getElementById('btn-open').addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            loadFile(file);
+            const f = e.target.files[0]; if (!f) return;
+            loadFile(f);
             fileInput.value = '';
         });
 
-        // Drag & Drop
-        canvasArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            canvasArea.classList.add('drag-over');
-        });
-
-        canvasArea.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            canvasArea.classList.remove('drag-over');
-        });
-
+        canvasArea.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); canvasArea.classList.add('drag-over'); });
+        canvasArea.addEventListener('dragleave', (e) => { e.preventDefault(); canvasArea.classList.remove('drag-over'); });
         canvasArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            canvasArea.classList.remove('drag-over');
-            const file = e.dataTransfer.files[0];
-            if (!file) return;
-            loadFile(file);
+            e.preventDefault(); e.stopPropagation(); canvasArea.classList.remove('drag-over');
+            const f = e.dataTransfer.files[0]; if (!f) return;
+            loadFile(f);
         });
 
-        // Click drop zone to open
         dropZone.addEventListener('click', () => fileInput.click());
 
-        // Channel buttons
         document.querySelectorAll('.channel-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.channel-btn').forEach(b => b.classList.remove('active'));
@@ -989,61 +964,54 @@
             });
         });
 
-        // Checker toggle
         document.getElementById('toggle-checker').addEventListener('click', function () {
             showChecker = !showChecker;
             this.classList.toggle('active', showChecker);
             renderCanvas();
         });
 
-        // Mip select
         mipSelect.addEventListener('change', () => {
             currentMip = parseInt(mipSelect.value);
-            currentRGBA = decodeToRGBA(currentDDS.mipmaps[currentMip], currentDDS);
+            if (currentDDS && currentDDS.mipmaps[currentMip] && !isVideo && !isAnimated) {
+                currentRGBA = decodeToRGBA(currentDDS.mipmaps[currentMip], currentDDS);
+            }
             renderCanvas();
             updateInfo();
         });
 
-        // Zoom
         document.getElementById('zoom-in').addEventListener('click', () => setZoomCenter(zoom * 1.25));
         document.getElementById('zoom-out').addEventListener('click', () => setZoomCenter(zoom / 1.25));
         document.getElementById('zoom-fit').addEventListener('click', fitToView);
 
-        function setZoomCenter(newZoom) {
-            newZoom = Math.min(Math.max(newZoom, 0.05), 32);
-            const areaW = canvasArea.clientWidth;
-            const areaH = canvasArea.clientHeight;
-            const cx = areaW / 2, cy = areaH / 2;
-            panX = cx - (cx - panX) * (newZoom / zoom);
-            panY = cy - (cy - panY) * (newZoom / zoom);
-            zoom = newZoom;
+        function setZoomCenter(nz) {
+            nz = Math.min(Math.max(nz, 0.05), 32);
+            const cw = canvasArea.clientWidth, ch = canvasArea.clientHeight;
+            const cx = cw / 2, cy = ch / 2;
+            panX = cx - (cx - panX) * (nz / zoom);
+            panY = cy - (cy - panY) * (nz / zoom);
+            zoom = nz;
             updateTransform();
             updateInfo();
         }
 
-        // Mouse wheel zoom
         canvasArea.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-            const newZoom = Math.min(Math.max(zoom * factor, 0.05), 32);
-            const rect = canvasArea.getBoundingClientRect();
-            const mx = e.clientX - rect.left;
-            const my = e.clientY - rect.top;
-            panX = mx - (mx - panX) * (newZoom / zoom);
-            panY = my - (my - panY) * (newZoom / zoom);
-            zoom = newZoom;
+            const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+            const nz = Math.min(Math.max(zoom * f, 0.05), 32);
+            const r = canvasArea.getBoundingClientRect();
+            const mx = e.clientX - r.left, my = e.clientY - r.top;
+            panX = mx - (mx - panX) * (nz / zoom);
+            panY = my - (my - panY) * (nz / zoom);
+            zoom = nz;
             updateTransform();
             updateInfo();
         }, { passive: false });
 
-        // Pan
         canvasArea.addEventListener('mousedown', (e) => {
             if (e.button !== 0 && e.button !== 1) return;
             isPanning = true;
-            panStartX = e.clientX;
-            panStartY = e.clientY;
-            panStartPanX = panX;
-            panStartPanY = panY;
+            panStartX = e.clientX; panStartY = e.clientY;
+            panStartPanX = panX; panStartPanY = panY;
         });
 
         window.addEventListener('mousemove', (e) => {
@@ -1055,21 +1023,21 @@
 
         window.addEventListener('mouseup', () => { isPanning = false; });
 
-        // Keyboard shortcuts
         window.addEventListener('keydown', (e) => {
-            if (e.key === '1') clickChannel('rgba');
-            else if (e.key === '2') clickChannel('r');
-            else if (e.key === '3') clickChannel('g');
-            else if (e.key === '4') clickChannel('b');
-            else if (e.key === '5') clickChannel('a');
+            if (e.key === '1') clickCh('rgba');
+            else if (e.key === '2') clickCh('r');
+            else if (e.key === '3') clickCh('g');
+            else if (e.key === '4') clickCh('b');
+            else if (e.key === '5') clickCh('a');
             else if (e.key === 'f' || e.key === 'F') fitToView();
             else if (e.key === '+' || e.key === '=') setZoomCenter(zoom * 1.25);
             else if (e.key === '-') setZoomCenter(zoom / 1.25);
+            else if (e.key === ' ' && isVideo) { e.preventDefault(); videoPlayer.paused ? videoPlayer.play() : videoPlayer.pause(); }
         });
 
-        function clickChannel(ch) {
-            const btn = document.querySelector(`.channel-btn[data-channel="${ch}"]`);
-            if (btn) btn.click();
+        function clickCh(ch) {
+            const b = document.querySelector(`.channel-btn[data-channel="${ch}"]`);
+            if (b) b.click();
         }
     </script>
 </body>
