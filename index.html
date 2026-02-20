@@ -928,6 +928,14 @@
             loadFileFromList(idx);
         }
 
+        function skipToNext() {
+            // Remove failed file from list and load next
+            if (fileList.length <= 1) return;
+            fileList.splice(fileIndex, 1);
+            if (fileIndex >= fileList.length) fileIndex = 0;
+            loadFileFromList(fileIndex);
+        }
+
         function loadImageFile(file) {
             const ext = getExt(file.name);
             const isGif = (ext === '.gif');
@@ -954,7 +962,7 @@
                 mipSelect.innerHTML = '<option value="0">Level 0 (' + w + '\u00d7' + h + ')</option>';
                 showMedia();
             };
-            img.onerror = () => { URL.revokeObjectURL(url); alert('\uc774\ubbf8\uc9c0\ub97c \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4: ' + file.name); };
+            img.onerror = () => { URL.revokeObjectURL(url); console.warn('Skipped (image load failed):', file.name); skipToNext(); };
             img.src = url;
         }
 
@@ -985,7 +993,7 @@
                     videoPlayer.onseeked = null;
                 };
             };
-            videoPlayer.onerror = () => { URL.revokeObjectURL(url); alert('\ube44\ub514\uc624\ub97c \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4: ' + file.name); };
+            videoPlayer.onerror = () => { URL.revokeObjectURL(url); console.warn('Skipped (video load failed):', file.name); skipToNext(); };
         }
 
         function loadDDSBuffer(buffer, name) {
