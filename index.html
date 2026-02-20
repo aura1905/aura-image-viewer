@@ -487,6 +487,7 @@
         </div>
         <div class="canvas-wrapper checker-bg" id="canvas-wrapper" style="display:none;">
             <canvas id="dds-canvas"></canvas>
+            <img id="gif-img" style="display:none; width:100%; height:100%;">
         </div>
     </div>
 
@@ -729,6 +730,8 @@
         let panStartX = 0, panStartY = 0;
         let panStartPanX = 0, panStartPanY = 0;
         let fileName = '';
+        let isAnimated = false;
+        let animatedImgUrl = null;
 
         const canvas = document.getElementById('dds-canvas');
         const ctx = canvas.getContext('2d');
@@ -738,21 +741,45 @@
         const fileInput = document.getElementById('file-input');
         const mipSelect = document.getElementById('mip-select');
 
+        const gifImg = document.getElementById('gif-img');
+
         function renderCanvas() {
-            if (!currentDDS || !currentRGBA) return;
+            if (!currentDDS) return;
             const mip = currentDDS.mipmaps[currentMip];
             const w = mip.width, h = mip.height;
 
-            canvas.width = w;
-            canvas.height = h;
-
-            const filtered = applyChannel(currentRGBA, currentChannel, w, h);
-            const imgData = new ImageData(new Uint8ClampedArray(filtered), w, h);
-            ctx.clearRect(0, 0, w, h);
-            ctx.putImageData(imgData, 0, 0);
-
             canvasWrapper.style.width = w + 'px';
             canvasWrapper.style.height = h + 'px';
+
+            // Animated GIF in RGBA mode: show <img>, hide canvas
+            if (isAnimated && currentChannel === 'rgba') {
+                canvas.style.display = 'none';
+                gifImg.style.display = 'block';
+                gifImg.style.width = w + 'px';
+                gifImg.style.height = h + 'px';
+            } else {
+                // For channel views on GIF, capture current frame
+                if (isAnimated && currentChannel !== 'rgba') {
+                    const tmpCanvas = document.createElement('canvas');
+                    tmpCanvas.width = w;
+                    tmpCanvas.height = h;
+                    const tmpCtx = tmpCanvas.getContext('2d');
+                    tmpCtx.drawImage(gifImg, 0, 0, w, h);
+                    const imgData = tmpCtx.getImageData(0, 0, w, h);
+                    currentRGBA = new Uint8Array(imgData.data.buffer);
+                }
+
+                gifImg.style.display = 'none';
+                canvas.style.display = 'block';
+                canvas.width = w;
+                canvas.height = h;
+
+                if (!currentRGBA) return;
+                const filtered = applyChannel(currentRGBA, currentChannel, w, h);
+                const imgData = new ImageData(new Uint8ClampedArray(filtered), w, h);
+                ctx.clearRect(0, 0, w, h);
+                ctx.putImageData(imgData, 0, 0);
+            }
 
             if (showChecker && currentChannel === 'rgba') {
                 canvasWrapper.classList.add('checker-bg');
@@ -799,40 +826,59 @@
         }
 
         function loadImageFile(file) {
+            const ext = getExtension(file.name);
+            const isGif = (ext === '.gif');
             const url = URL.createObjectURL(file);
             const img = new Image();
             img.onload = () => {
                 const w = img.naturalWidth;
                 const h = img.naturalHeight;
 
-                // Draw to temp canvas to extract RGBA
-                const tmpCanvas = document.createElement('canvas');
-                tmpCanvas.width = w;
-                tmpCanvas.height = h;
-                const tmpCtx = tmpCanvas.getContext('2d');
-                tmpCtx.drawImage(img, 0, 0);
-                const imgData = tmpCtx.getImageData(0, 0, w, h);
-                const rgba = new Uint8Array(imgData.data.buffer);
+                // Clean up previous animated URL
+                if (animatedImgUrl) { URL.revokeObjectURL(animatedImgUrl); animatedImgUrl = null; }
 
-                URL.revokeObjectURL(url);
+                if (isGif) {
+                    // Keep URL alive for animated playback
+                    isAnimated = true;
+                    animatedImgUrl = url;
+                    gifImg.src = url;
 
-                // Build a pseudo-DDS object for compatibility
-                const ext = getExtension(file.name).replace('.', '').toUpperCase();
+                    // Extract first frame for channel views
+                    const tmpCanvas = document.createElement('canvas');
+                    tmpCanvas.width = w;
+                    tmpCanvas.height = h;
+                    const tmpCtx = tmpCanvas.getContext('2d');
+                    tmpCtx.drawImage(img, 0, 0);
+                    const imgData = tmpCtx.getImageData(0, 0, w, h);
+                    currentRGBA = new Uint8Array(imgData.data.buffer);
+                } else {
+                    isAnimated = false;
+                    gifImg.style.display = 'none';
+                    gifImg.src = '';
+                    URL.revokeObjectURL(url);
+
+                    // Extract RGBA
+                    const tmpCanvas = document.createElement('canvas');
+                    tmpCanvas.width = w;
+                    tmpCanvas.height = h;
+                    const tmpCtx = tmpCanvas.getContext('2d');
+                    tmpCtx.drawImage(img, 0, 0);
+                    const imgData = tmpCtx.getImageData(0, 0, w, h);
+                    currentRGBA = new Uint8Array(imgData.data.buffer);
+                }
+
+                const fmtLabel = ext.replace('.', '').toUpperCase();
                 currentDDS = {
-                    width: w,
-                    height: h,
-                    format: ext,
+                    width: w, height: h,
+                    format: fmtLabel + (isGif ? ' (animated)' : ''),
                     mipMapCount: 1,
-                    mipmaps: [{ width: w, height: h, data: rgba, offset: 0, size: rgba.length }],
+                    mipmaps: [{ width: w, height: h, data: currentRGBA, offset: 0, size: currentRGBA.length }],
                 };
                 fileName = file.name;
                 currentMip = 0;
-                currentRGBA = rgba;
 
-                // Update mip selector
                 mipSelect.innerHTML = '<option value="0">Level 0 (' + w + '\u00d7' + h + ')</option>';
 
-                // Show canvas
                 dropZone.classList.add('hidden');
                 canvasWrapper.style.display = 'block';
 
