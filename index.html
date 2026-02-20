@@ -389,7 +389,6 @@
             transform: translateX(14px);
         }
 
-        /* ===== Video player ===== */
         #video-player {
             display: none;
             max-width: 100%;
@@ -401,6 +400,69 @@
         #gif-img {
             display: none;
             image-rendering: auto;
+        }
+
+        /* ===== Navigation Buttons ===== */
+        .nav-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 44px;
+            height: 72px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(22, 22, 30, 0.85);
+            color: var(--text-secondary);
+            font-size: 22px;
+            cursor: pointer;
+            z-index: 20;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+        }
+
+        .nav-btn:hover {
+            background: rgba(30, 30, 42, 0.95);
+            color: var(--text-primary);
+            border-color: var(--accent);
+            box-shadow: 0 0 16px var(--accent-glow);
+        }
+
+        .nav-btn.show {
+            display: flex;
+        }
+
+        .nav-prev {
+            left: 16px;
+        }
+
+        .nav-next {
+            right: 16px;
+        }
+
+        /* ===== File Counter ===== */
+        .file-counter {
+            position: absolute;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 6px 16px;
+            border-radius: 20px;
+            background: rgba(22, 22, 30, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+            font-size: 12px;
+            color: var(--text-secondary);
+            z-index: 20;
+            display: none;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .file-counter.show {
+            display: block;
         }
     </style>
 </head>
@@ -496,16 +558,32 @@
             <div class="drop-text">파일을 드래그하거나 클릭하여 열기</div>
             <div class="drop-subtext">DDS &middot; PNG &middot; JPG &middot; GIF &middot; BMP &middot; WebP &middot; MP4
                 &middot; WebM</div>
+            <div class="drop-subtext" style="margin-top: -8px;">여러 파일 선택 또는 폴더 드롭 시 좌우 탐색 가능</div>
         </div>
         <div class="canvas-wrapper checker-bg" id="canvas-wrapper" style="display:none;">
             <canvas id="dds-canvas"></canvas>
             <img id="gif-img">
             <video id="video-player" loop controls></video>
         </div>
+
+        <!-- Navigation -->
+        <button class="nav-btn nav-prev" id="nav-prev">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+            </svg>
+        </button>
+        <button class="nav-btn nav-next" id="nav-next">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 6 15 12 9 18" />
+            </svg>
+        </button>
+        <div class="file-counter" id="file-counter"></div>
     </div>
 
     <input type="file" id="file-input"
-        accept=".dds,.png,.jpg,.jpeg,.gif,.bmp,.webp,.tga,.tiff,.tif,.svg,.mp4,.webm,.mov,.avi,.mkv,.ogg"
+        accept=".dds,.png,.jpg,.jpeg,.gif,.bmp,.webp,.tga,.tiff,.tif,.svg,.mp4,.webm,.mov,.avi,.mkv,.ogg" multiple
         style="display:none;">
 
     <script>
@@ -595,22 +673,21 @@
             const al = new Uint8Array(16);
             for (let i = 0; i < 8; i++) { al[i * 2] = (s[o + i] & 0xF) * 17; al[i * 2 + 1] = ((s[o + i] >> 4) & 0xF) * 17; }
             const px = dxt1Block(s, o + 8);
-            for (let i = 0; i < 16; i++)px[i * 4 + 3] = al[i];
+            for (let i = 0; i < 16; i++) px[i * 4 + 3] = al[i];
             return px;
         }
 
         function dxt5Block(s, o) {
             const a0 = s[o], a1 = s[o + 1];
-            const ab0 = s[o + 2] | (s[o + 3] << 8) | (s[o + 4] << 16);
-            const ab1 = s[o + 5] | (s[o + 6] << 8) | (s[o + 7] << 16);
+            const ab0 = s[o + 2] | (s[o + 3] << 8) | (s[o + 4] << 16), ab1 = s[o + 5] | (s[o + 6] << 8) | (s[o + 7] << 16);
             const ai = [];
-            for (let i = 0; i < 8; i++)ai.push((ab0 >> (i * 3)) & 7);
-            for (let i = 0; i < 8; i++)ai.push((ab1 >> (i * 3)) & 7);
+            for (let i = 0; i < 8; i++) ai.push((ab0 >> (i * 3)) & 7);
+            for (let i = 0; i < 8; i++) ai.push((ab1 >> (i * 3)) & 7);
             const ap = new Uint8Array(8); ap[0] = a0; ap[1] = a1;
-            if (a0 > a1) { for (let i = 2; i < 8; i++)ap[i] = ((8 - i) * a0 + (i - 1) * a1 + 3) / 7 | 0; }
-            else { for (let i = 2; i < 6; i++)ap[i] = ((6 - i) * a0 + (i - 1) * a1 + 2) / 5 | 0; ap[6] = 0; ap[7] = 255; }
+            if (a0 > a1) { for (let i = 2; i < 8; i++) ap[i] = ((8 - i) * a0 + (i - 1) * a1 + 3) / 7 | 0; }
+            else { for (let i = 2; i < 6; i++) ap[i] = ((6 - i) * a0 + (i - 1) * a1 + 2) / 5 | 0; ap[6] = 0; ap[7] = 255; }
             const px = dxt1Block(s, o + 8);
-            for (let i = 0; i < 16; i++)px[i * 4 + 3] = ap[ai[i]];
+            for (let i = 0; i < 16; i++) px[i * 4 + 3] = ap[ai[i]];
             return px;
         }
 
@@ -619,13 +696,13 @@
             const out = new Uint8Array(w * h * 4);
             const bx = Math.max(1, Math.ceil(w / 4)), by = Math.max(1, Math.ceil(h / 4));
             const bs = fmt === 'DXT1' ? 8 : 16;
-            for (let y = 0; y < by; y++)for (let x = 0; x < bx; x++) {
+            for (let y = 0; y < by; y++) for (let x = 0; x < bx; x++) {
                 const bo = (y * bx + x) * bs;
                 let px;
                 if (fmt === 'DXT1') px = dxt1Block(data, bo);
                 else if (fmt === 'DXT3') px = dxt3Block(data, bo);
                 else px = dxt5Block(data, bo);
-                for (let py = 0; py < 4; py++)for (let ppx = 0; ppx < 4; ppx++) {
+                for (let py = 0; py < 4; py++) for (let ppx = 0; ppx < 4; ppx++) {
                     const dx = x * 4 + ppx, dy = y * 4 + py;
                     if (dx >= w || dy >= h) continue;
                     const si = (py * 4 + ppx) * 4, di = (dy * w + dx) * 4;
@@ -681,6 +758,10 @@
         let isVideo = false;
         let mediaUrl = null;
 
+        // File list navigation
+        let fileList = [];
+        let fileIndex = -1;
+
         const canvas = document.getElementById('dds-canvas');
         const ctx = canvas.getContext('2d');
         const canvasArea = document.getElementById('canvas-area');
@@ -690,6 +771,18 @@
         const mipSelect = document.getElementById('mip-select');
         const gifImg = document.getElementById('gif-img');
         const videoPlayer = document.getElementById('video-player');
+        const navPrev = document.getElementById('nav-prev');
+        const navNext = document.getElementById('nav-next');
+        const fileCounter = document.getElementById('file-counter');
+
+        const SUPPORTED_EXT = ['.dds', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.tga', '.tiff', '.tif', '.svg', '.ico', '.avif', '.mp4', '.webm', '.mov', '.avi', '.mkv', '.ogg'];
+        const DDS_EXT = ['.dds'];
+        const VIDEO_EXT = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.ogg'];
+
+        function getExt(name) {
+            const d = name.lastIndexOf('.');
+            return d >= 0 ? name.substring(d).toLowerCase() : '';
+        }
 
         // ========================================================
         // Render
@@ -702,17 +795,14 @@
             canvasWrapper.style.width = w + 'px';
             canvasWrapper.style.height = h + 'px';
 
-            // Video mode
             if (isVideo) {
                 canvas.style.display = 'none';
                 gifImg.style.display = 'none';
-
                 if (currentChannel === 'rgba') {
                     videoPlayer.style.display = 'block';
                     videoPlayer.style.width = w + 'px';
                     videoPlayer.style.height = h + 'px';
                 } else {
-                    // Capture current frame for channel view
                     videoPlayer.style.display = 'none';
                     canvas.style.display = 'block';
                     canvas.width = w; canvas.height = h;
@@ -720,14 +810,10 @@
                     const imgData = ctx.getImageData(0, 0, w, h);
                     const frameRGBA = new Uint8Array(imgData.data.buffer);
                     const filtered = applyChannel(frameRGBA, currentChannel, w, h);
-                    const outData = new ImageData(new Uint8ClampedArray(filtered), w, h);
-                    ctx.putImageData(outData, 0, 0);
+                    ctx.putImageData(new ImageData(new Uint8ClampedArray(filtered), w, h), 0, 0);
                 }
-            }
-            // Animated GIF mode
-            else if (isAnimated) {
+            } else if (isAnimated) {
                 videoPlayer.style.display = 'none';
-
                 if (currentChannel === 'rgba') {
                     canvas.style.display = 'none';
                     gifImg.style.display = 'block';
@@ -745,9 +831,7 @@
                     const filtered = applyChannel(currentRGBA, currentChannel, w, h);
                     ctx.putImageData(new ImageData(new Uint8ClampedArray(filtered), w, h), 0, 0);
                 }
-            }
-            // Static image / DDS
-            else {
+            } else {
                 videoPlayer.style.display = 'none';
                 gifImg.style.display = 'none';
                 canvas.style.display = 'block';
@@ -779,17 +863,19 @@
             document.getElementById('zoom-label').textContent = Math.round(zoom * 100) + '%';
         }
 
+        function updateNav() {
+            const multi = fileList.length > 1;
+            navPrev.classList.toggle('show', multi);
+            navNext.classList.toggle('show', multi);
+            fileCounter.classList.toggle('show', multi);
+            if (multi) {
+                fileCounter.textContent = (fileIndex + 1) + ' / ' + fileList.length;
+            }
+        }
+
         // ========================================================
         // File Loading
         // ========================================================
-        const DDS_EXT = ['.dds'];
-        const VIDEO_EXT = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.ogg'];
-
-        function getExt(name) {
-            const d = name.lastIndexOf('.');
-            return d >= 0 ? name.substring(d).toLowerCase() : '';
-        }
-
         function cleanupMedia() {
             if (mediaUrl) { URL.revokeObjectURL(mediaUrl); mediaUrl = null; }
             isAnimated = false;
@@ -801,7 +887,10 @@
             gifImg.style.display = 'none';
         }
 
-        function loadFile(file) {
+        function loadFileFromList(index) {
+            if (index < 0 || index >= fileList.length) return;
+            fileIndex = index;
+            const file = fileList[fileIndex];
             const ext = getExt(file.name);
             cleanupMedia();
 
@@ -816,6 +905,29 @@
             }
         }
 
+        function setFileList(files) {
+            // Filter to supported formats and sort by name
+            fileList = Array.from(files)
+                .filter(f => SUPPORTED_EXT.includes(getExt(f.name)))
+                .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+            if (fileList.length === 0) return;
+            fileIndex = 0;
+            loadFileFromList(0);
+        }
+
+        function navigatePrev() {
+            if (fileList.length <= 1) return;
+            const idx = (fileIndex - 1 + fileList.length) % fileList.length;
+            loadFileFromList(idx);
+        }
+
+        function navigateNext() {
+            if (fileList.length <= 1) return;
+            const idx = (fileIndex + 1) % fileList.length;
+            loadFileFromList(idx);
+        }
+
         function loadImageFile(file) {
             const ext = getExt(file.name);
             const isGif = (ext === '.gif');
@@ -823,16 +935,9 @@
             const img = new Image();
             img.onload = () => {
                 const w = img.naturalWidth, h = img.naturalHeight;
+                if (isGif) { isAnimated = true; mediaUrl = url; gifImg.src = url; }
+                else { URL.revokeObjectURL(url); }
 
-                if (isGif) {
-                    isAnimated = true;
-                    mediaUrl = url;
-                    gifImg.src = url;
-                } else {
-                    URL.revokeObjectURL(url);
-                }
-
-                // Extract first frame RGBA
                 const tmp = document.createElement('canvas');
                 tmp.width = w; tmp.height = h;
                 const tc = tmp.getContext('2d');
@@ -847,7 +952,6 @@
                 fileName = file.name;
                 currentMip = 0;
                 mipSelect.innerHTML = '<option value="0">Level 0 (' + w + '\u00d7' + h + ')</option>';
-
                 showMedia();
             };
             img.onerror = () => { URL.revokeObjectURL(url); alert('\uc774\ubbf8\uc9c0\ub97c \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4: ' + file.name); };
@@ -858,14 +962,10 @@
             const url = URL.createObjectURL(file);
             mediaUrl = url;
             isVideo = true;
-
             videoPlayer.src = url;
             videoPlayer.onloadedmetadata = () => {
-                const w = videoPlayer.videoWidth;
-                const h = videoPlayer.videoHeight;
+                const w = videoPlayer.videoWidth, h = videoPlayer.videoHeight;
                 const ext = getExt(file.name).replace('.', '').toUpperCase();
-
-                // Capture first frame
                 videoPlayer.currentTime = 0;
                 videoPlayer.onseeked = () => {
                     const tmp = document.createElement('canvas');
@@ -873,7 +973,6 @@
                     const tc = tmp.getContext('2d');
                     tc.drawImage(videoPlayer, 0, 0);
                     currentRGBA = new Uint8Array(tc.getImageData(0, 0, w, h).data.buffer);
-
                     currentDDS = {
                         width: w, height: h, format: ext + ' (video)', mipMapCount: 1,
                         mipmaps: [{ width: w, height: h, data: currentRGBA, offset: 0, size: currentRGBA.length }],
@@ -881,7 +980,6 @@
                     fileName = file.name;
                     currentMip = 0;
                     mipSelect.innerHTML = '<option value="0">' + w + '\u00d7' + h + '</option>';
-
                     showMedia();
                     videoPlayer.play();
                     videoPlayer.onseeked = null;
@@ -896,7 +994,6 @@
                 currentDDS = dds;
                 fileName = name || '';
                 currentMip = 0;
-
                 mipSelect.innerHTML = '';
                 for (let i = 0; i < dds.mipMapCount && i < dds.mipmaps.length; i++) {
                     const opt = document.createElement('option');
@@ -905,7 +1002,6 @@
                     opt.textContent = `Level ${i} (${m.width}\u00d7${m.height})`;
                     mipSelect.appendChild(opt);
                 }
-
                 currentRGBA = decodeToRGBA(dds.mipmaps[0], dds);
                 showMedia();
             } catch (e) {
@@ -920,6 +1016,7 @@
             fitToView();
             renderCanvas();
             updateInfo();
+            updateNav();
         }
 
         function fitToView() {
@@ -936,25 +1033,87 @@
         }
 
         // ========================================================
+        // Drag & Drop - supports folders via webkitGetAsEntry
+        // ========================================================
+        async function getFilesFromDrop(dataTransfer) {
+            const items = dataTransfer.items;
+            const files = [];
+
+            if (items && items.length > 0 && items[0].webkitGetAsEntry) {
+                // Use webkitGetAsEntry to handle folder drops
+                const entries = [];
+                for (let i = 0; i < items.length; i++) {
+                    const entry = items[i].webkitGetAsEntry();
+                    if (entry) entries.push(entry);
+                }
+
+                async function readEntry(entry) {
+                    if (entry.isFile) {
+                        return new Promise(resolve => {
+                            entry.file(f => { files.push(f); resolve(); }, () => resolve());
+                        });
+                    } else if (entry.isDirectory) {
+                        const reader = entry.createReader();
+                        const subEntries = await new Promise(resolve => {
+                            const results = [];
+                            function readBatch() {
+                                reader.readEntries(batch => {
+                                    if (batch.length === 0) { resolve(results); return; }
+                                    results.push(...batch);
+                                    readBatch();
+                                }, () => resolve(results));
+                            }
+                            readBatch();
+                        });
+                        for (const sub of subEntries) {
+                            await readEntry(sub);
+                        }
+                    }
+                }
+
+                for (const entry of entries) {
+                    await readEntry(entry);
+                }
+            } else {
+                // Fallback: use dataTransfer.files
+                for (let i = 0; i < dataTransfer.files.length; i++) {
+                    files.push(dataTransfer.files[i]);
+                }
+            }
+
+            return files;
+        }
+
+        // ========================================================
         // Events
         // ========================================================
         document.getElementById('btn-open').addEventListener('click', () => fileInput.click());
+
         fileInput.addEventListener('change', (e) => {
-            const f = e.target.files[0]; if (!f) return;
-            loadFile(f);
+            const files = e.target.files;
+            if (!files || files.length === 0) return;
+            setFileList(files);
             fileInput.value = '';
         });
 
         canvasArea.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); canvasArea.classList.add('drag-over'); });
         canvasArea.addEventListener('dragleave', (e) => { e.preventDefault(); canvasArea.classList.remove('drag-over'); });
-        canvasArea.addEventListener('drop', (e) => {
-            e.preventDefault(); e.stopPropagation(); canvasArea.classList.remove('drag-over');
-            const f = e.dataTransfer.files[0]; if (!f) return;
-            loadFile(f);
+
+        canvasArea.addEventListener('drop', async (e) => {
+            e.preventDefault(); e.stopPropagation();
+            canvasArea.classList.remove('drag-over');
+            const files = await getFilesFromDrop(e.dataTransfer);
+            if (files.length === 0) return;
+            setFileList(files);
         });
 
         dropZone.addEventListener('click', () => fileInput.click());
 
+        // Navigation buttons
+        navPrev.addEventListener('click', (e) => { e.stopPropagation(); navigatePrev(); });
+        navNext.addEventListener('click', (e) => { e.stopPropagation(); navigateNext(); });
+
+        // Channel buttons
         document.querySelectorAll('.channel-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.channel-btn').forEach(b => b.classList.remove('active'));
@@ -994,21 +1153,46 @@
             updateInfo();
         }
 
+        // Mouse wheel: Ctrl = zoom, otherwise = navigate
         canvasArea.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-            const nz = Math.min(Math.max(zoom * f, 0.05), 32);
-            const r = canvasArea.getBoundingClientRect();
-            const mx = e.clientX - r.left, my = e.clientY - r.top;
-            panX = mx - (mx - panX) * (nz / zoom);
-            panY = my - (my - panY) * (nz / zoom);
-            zoom = nz;
-            updateTransform();
-            updateInfo();
+
+            if (e.ctrlKey || e.metaKey) {
+                // Ctrl+Scroll = Zoom
+                const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+                const nz = Math.min(Math.max(zoom * f, 0.05), 32);
+                const r = canvasArea.getBoundingClientRect();
+                const mx = e.clientX - r.left, my = e.clientY - r.top;
+                panX = mx - (mx - panX) * (nz / zoom);
+                panY = my - (my - panY) * (nz / zoom);
+                zoom = nz;
+                updateTransform();
+                updateInfo();
+            } else {
+                // Scroll = Navigate files
+                if (fileList.length > 1) {
+                    if (e.deltaY > 0) navigateNext();
+                    else navigatePrev();
+                } else {
+                    // Single file: zoom as fallback
+                    const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+                    const nz = Math.min(Math.max(zoom * f, 0.05), 32);
+                    const r = canvasArea.getBoundingClientRect();
+                    const mx = e.clientX - r.left, my = e.clientY - r.top;
+                    panX = mx - (mx - panX) * (nz / zoom);
+                    panY = my - (my - panY) * (nz / zoom);
+                    zoom = nz;
+                    updateTransform();
+                    updateInfo();
+                }
+            }
         }, { passive: false });
 
+        // Pan
         canvasArea.addEventListener('mousedown', (e) => {
             if (e.button !== 0 && e.button !== 1) return;
+            // Don't pan on nav buttons
+            if (e.target.closest('.nav-btn')) return;
             isPanning = true;
             panStartX = e.clientX; panStartY = e.clientY;
             panStartPanX = panX; panStartPanY = panY;
@@ -1023,6 +1207,7 @@
 
         window.addEventListener('mouseup', () => { isPanning = false; });
 
+        // Keyboard
         window.addEventListener('keydown', (e) => {
             if (e.key === '1') clickCh('rgba');
             else if (e.key === '2') clickCh('r');
@@ -1032,6 +1217,8 @@
             else if (e.key === 'f' || e.key === 'F') fitToView();
             else if (e.key === '+' || e.key === '=') setZoomCenter(zoom * 1.25);
             else if (e.key === '-') setZoomCenter(zoom / 1.25);
+            else if (e.key === 'ArrowLeft') navigatePrev();
+            else if (e.key === 'ArrowRight') navigateNext();
             else if (e.key === ' ' && isVideo) { e.preventDefault(); videoPlayer.paused ? videoPlayer.play() : videoPlayer.pause(); }
         });
 
